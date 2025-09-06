@@ -282,13 +282,13 @@ function TextAreaChat({
   };
 
   useEffect(() => {
-    if (images.length > 1 && model !== 'quality') {
-      setModel('quality');
+    if (images.length > 1 && model !== 'anthropic-quality') {
+      setModel('anthropic-quality');
     }
   }, [images, setModel, model]);
 
-  const handleItemsChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const selectedItems = event.target.files;
+ const isImageUploadEnabled =
+    model === 'anthropic-fast' || model === 'anthropic-quality';
     if (selectedItems && selectedItems.length > 0) {
       addItems(selectedItems);
     }
@@ -661,7 +661,7 @@ function TextAreaChat({
                   };
                   input.click();
                 }}
-                disabled={disabled}
+                disabled={disabled || !isImageUploadEnabled}
               >
                 <ImagePlus className="h-5 w-5" />
               </Button>
