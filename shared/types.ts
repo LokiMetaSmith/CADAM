@@ -1,6 +1,10 @@
 import { Database } from './database.ts';
-export type Model = 'quality' | 'fast';
-
+export type Model =
+  | 'anthropic-fast'
+  | 'anthropic-quality'
+  | 'google'
+  | 'llama'
+  | 'grok';
 export type Message = Omit<
   Database['public']['Tables']['messages']['Row'],
   'content' | 'role'
