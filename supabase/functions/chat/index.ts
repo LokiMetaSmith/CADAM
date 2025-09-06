@@ -1,10 +1,11 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
-import { Anthropic } from 'https://esm.sh/@anthropic-ai/sdk@0.53.0';
 import {
   ContentBlockParam,
   MessageCreateParams,
   MessageParam,
 } from 'https://esm.sh/@anthropic-ai/sdk@0.53.0/resources/messages.d.mts';
+import { getLlmClient } from './llm.ts';
+import { Anthropic } from 'https://esm.sh/@anthropic-ai/sdk@0.53.0';
 import {
   Message,
   Model,
@@ -42,78 +43,6 @@ function markToolAsError(content: Content, toolId: string): Content {
   };
 }
 
-async function generateTitleFromMessages(
-  anthropic: Anthropic,
-  messagesToSend: MessageParam[],
-): Promise<string> {
-  try {
-    const titleSystemPrompt = `You are a helpful assistant that generates concise, descriptive titles for 3D objects based on a user's description, conversation context, and any reference images. Your titles should be:
-1. Brief (under 27 characters)
-2. Descriptive of the object
-3. Clear and professional
-4. Without any special formatting or punctuation at the beginning or end
-5. Consider the entire conversation context, not just the latest message
-6. When images are provided, incorporate visual elements you can see into the title`;
-
-    const titleResponse = await anthropic.messages.create({
-      model: 'claude-3-haiku-20240307',
-      max_tokens: 100,
-      system: titleSystemPrompt,
-      messages: [
-        ...messagesToSend,
-        {
-          role: 'user',
-          content:
-            'Generate a concise title for the 3D object that will be generated based on the previous messages.',
-        },
-      ],
-    });
-
-    if (
-      Array.isArray(titleResponse.content) &&
-      titleResponse.content.length > 0
-    ) {
-      const lastContent =
-        titleResponse.content[titleResponse.content.length - 1];
-      if (lastContent.type === 'text') {
-        let title = lastContent.text.trim();
-        if (title.length > 60) title = title.substring(0, 57) + '...';
-        return title;
-      }
-    }
-  } catch (error) {
-    console.error('Error generating object title:', error);
-  }
-
-  // Fallbacks
-  let lastUserMessage: MessageParam | undefined;
-  for (let i = messagesToSend.length - 1; i >= 0; i--) {
-    if (messagesToSend[i].role === 'user') {
-      lastUserMessage = messagesToSend[i];
-      break;
-    }
-  }
-  if (lastUserMessage && typeof lastUserMessage.content === 'string') {
-    return (lastUserMessage.content as string)
-      .split(/\s+/)
-      .slice(0, 4)
-      .join(' ')
-      .trim();
-  } else if (lastUserMessage && Array.isArray(lastUserMessage.content)) {
-    const textContent = lastUserMessage.content.find(
-      (block: ContentBlockParam) => block.type === 'text',
-    );
-    if (textContent && 'text' in textContent) {
-      return (textContent.text as string)
-        .split(/\s+/)
-        .slice(0, 4)
-        .join(' ')
-        .trim();
-    }
-  }
-
-  return 'Adam Object';
-}
 
 // Outer agent system prompt (conversational + tool-using)
 const PARAMETRIC_AGENT_PROMPT = `You are Adam, an AI CAD editor that creates and modifies OpenSCAD models.
@@ -357,18 +286,26 @@ Deno.serve(async (req) => {
       )
     ).flat();
 
+    const llmClient = getLlmClient(model);
     const anthropic = new Anthropic({
       apiKey: Deno.env.get('ANTHROPIC_API_KEY') ?? '',
     });
 
-    const stream = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+    const rawStream = await llmClient.create(
+      {
+        model:
+          model === 'anthropic-quality'
+            ? 'claude-sonnet-4-20250514'
+            : 'claude-3-haiku-20240307',
       system: PARAMETRIC_AGENT_PROMPT,
       max_tokens: 16000,
       messages: messagesToSend,
       tools,
-      stream: true,
-    });
+      },
+      model,
+    );
+
+    const stream = llmClient.parseStream(rawStream);
 
     const responseStream = new ReadableStream({
       async start(controller) {
@@ -516,24 +453,18 @@ Deno.serve(async (req) => {
                   };
                 }
 
-                const [responseResult, objectTitleResult] =
+                const [codeResponse, objectTitleResult] =
                   await Promise.allSettled([
-                    anthropic.messages.create(codeRequestConfig),
-                    generateTitleFromMessages(anthropic, messagesToSend),
+                    llmClient.createNonStreaming(codeRequestConfig, model),
+                    llmClient.generateTitle(messagesToSend),
                   ]);
 
                 let code = '';
                 if (
-                  responseResult.status === 'fulfilled' &&
-                  Array.isArray(responseResult.value.content) &&
-                  responseResult.value.content.length > 0
+                  codeResponse.status === 'fulfilled' &&
+                  codeResponse.value.content
                 ) {
-                  const lastContent =
-                    responseResult.value.content[
-                      responseResult.value.content.length - 1
-                    ];
-                  if (lastContent.type === 'text')
-                    code = lastContent.text.trim();
+                  code = codeResponse.value.content[0].text;
                 }
 
                 let title =
