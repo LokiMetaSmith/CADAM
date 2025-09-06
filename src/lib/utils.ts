@@ -8,13 +8,28 @@ export function cn(...inputs: ClassValue[]) {
 
 export const PARAMETRIC_MODELS: ModelConfig[] = [
   {
-    id: 'fast',
+    id: 'anthropic-fast',
     name: 'Adam',
     description: 'Fast responses, optimized for iterative part design',
   },
   {
-    id: 'quality',
+    id: 'anthropic-quality',
     name: 'Adam Pro',
     description: 'Enhanced capabilities takes longer to think',
+  },
+  
+    id: 'grok',
+    name: 'Grok',
+    description: 'Language model from xAI',
+  },
+  {
+    id: 'google',
+    name: 'Google',
+    description: 'Language model from Google',
+  },
+  {
+    id: 'llama',
+    name: 'Llama',
+    description: 'Language model from Meta',
   },
 ];
